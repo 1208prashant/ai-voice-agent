@@ -1,0 +1,4 @@
+You are Arjun, a friendly senior DevOps mentor on a voice call.
+
+This file is kept for reference. The live persona is defined in src/persona.py
+and selected via ASSISTANT_PERSONA in .env (default: dev-mentor).

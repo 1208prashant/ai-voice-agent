@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VoiceOps AI Assistant</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --text: #e7ecf3;
+      --muted: #8b9cb3;
+      --success: #22c55e;
+      --border: #2d3a4f;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .container {
+      width: min(720px, 100%);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 2rem;
+      box-shadow: 0 24px 48px rgba(0, 0, 0, 0.35);
+    }
+    h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+    .subtitle { color: var(--muted); font-size: 0.9rem; margin-bottom: 1.5rem; }
+    .status { font-size: 0.85rem; color: var(--muted); margin-bottom: 1rem; }
+    .status.ok { color: var(--success); }
+    .chat {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      height: 360px;
+      overflow-y: auto;
+      padding: 1rem;
+      margin-bottom: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .msg {
+      max-width: 85%;
+      padding: 0.65rem 0.9rem;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      line-height: 1.45;
+    }
+    .msg.user { align-self: flex-end; background: var(--accent); color: #fff; }
+    .msg.assistant { align-self: flex-start; background: #243044; }
+    .msg .label { font-size: 0.7rem; opacity: 0.7; margin-bottom: 0.2rem; text-transform: uppercase; }
+    .controls { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+    input[type="text"] {
+      flex: 1;
+      min-width: 200px;
+      padding: 0.75rem 1rem;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 0.95rem;
+    }
+    button {
+      padding: 0.75rem 1.25rem;
+      border: none;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      cursor: pointer;
+      font-weight: 500;
+      transition: background 0.15s;
+    }
+    button.primary { background: var(--accent); color: #fff; }
+    button.primary:hover { background: var(--accent-hover); }
+    button.secondary { background: #243044; color: var(--text); }
+    button.secondary:hover { background: #2d3f58; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.recording { background: #dc2626; animation: pulse 1s infinite; }
+    @keyframes pulse { 50% { opacity: 0.7; } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1 id="title">VoiceOps</h1>
+    <p class="subtitle" id="subtitle">Your voice mentor for DevOps and coding</p>
+    <p class="status" id="status">Connecting...</p>
+
+    <div class="chat" id="chat"></div>
+
+    <div class="controls">
+      <input type="text" id="input" placeholder="Ask a technical question..." />
+      <button class="primary" id="sendBtn">Send</button>
+      <button class="secondary" id="micBtn">Hold to Talk</button>
+      <button class="secondary" id="resetBtn">Reset</button>
+    </div>
+  </div>
+
+  <script>
+    const API = window.location.origin;
+    let sessionId = null;
+    let mediaRecorder = null;
+    let audioChunks = [];
+
+    const chat = document.getElementById("chat");
+    const input = document.getElementById("input");
+    const sendBtn = document.getElementById("sendBtn");
+    const micBtn = document.getElementById("micBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const status = document.getElementById("status");
+    const titleEl = document.getElementById("title");
+    const subtitleEl = document.getElementById("subtitle");
+    let assistantName = "Arjun";
+    let pendingIntro = null;
+
+    async function speakText(text, languageCode = null) {
+      const body = { text };
+      if (languageCode) body.language_code = languageCode;
+      const ttsRes = await fetch(`${API}/api/tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!ttsRes.ok) return;
+      await playAudio(await ttsRes.blob());
+    }
+
+    async function loadPersona(speak = true) {
+      const fallback = "Hey there — ask me anything about Linux, Docker, servers, or cloud.";
+      let greeting = fallback;
+      try {
+        const res = await fetch(`${API}/api/persona`);
+        if (res.ok) {
+          const p = await res.json();
+          assistantName = p.name;
+          titleEl.textContent = p.name;
+          subtitleEl.textContent = p.tagline;
+          document.title = `${p.name} — Voice Mentor`;
+          greeting = p.sample_greeting;
+        }
+      } catch {
+        /* use fallback greeting */
+      }
+      addMessage("assistant", greeting);
+      if (!speak) return;
+      try {
+        await speakText(greeting);
+        pendingIntro = null;
+      } catch {
+        pendingIntro = greeting;
+        status.textContent += " — tap anywhere to hear the intro";
+      }
+    }
+
+    function tryPendingIntro() {
+      if (!pendingIntro) return;
+      const text = pendingIntro;
+      pendingIntro = null;
+      speakText(text).catch(() => {});
+    }
+
+    async function checkHealth() {
+      try {
+        const res = await fetch(`${API}/api/health`);
+        const data = await res.json();
+        const configured = Object.entries(data.services)
+          .map(([k, v]) => `${k}: ${v ? "✓" : "✗"}`)
+          .join(" | ");
+        status.textContent = `Ready (v${data.version}) — ${configured}`;
+        status.classList.add("ok");
+      } catch {
+        status.textContent = "API unavailable — start the server with: python main.py";
+      }
+    }
+
+    function addMessage(role, text, extra = "") {
+      const div = document.createElement("div");
+      div.className = `msg ${role}`;
+      const label = role === "assistant" ? assistantName : role;
+      div.innerHTML = `<div class="label">${label}${extra}</div>${text}`;
+      chat.appendChild(div);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    async function playAudio(blob) {
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.onended = () => URL.revokeObjectURL(url);
+      await audio.play();
+    }
+
+    async function apiErrorMessage(res) {
+      try {
+        const data = await res.json();
+        if (typeof data.detail === "string") return data.detail;
+        return JSON.stringify(data.detail);
+      } catch {
+        return await res.text();
+      }
+    }
+
+    async function sendText() {
+      tryPendingIntro();
+      const message = input.value.trim();
+      if (!message) return;
+      input.value = "";
+      addMessage("user", message);
+      sendBtn.disabled = true;
+
+      try {
+        const res = await fetch(`${API}/api/chat/text`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message, session_id: sessionId }),
+        });
+        if (!res.ok) throw new Error(await apiErrorMessage(res));
+        const data = await res.json();
+        sessionId = data.session_id;
+        const tag = data.used_web_search ? " · web search" : "";
+        addMessage("assistant", data.response_text, tag);
+        await speakText(data.response_text, data.response_language);
+      } catch (err) {
+        addMessage("assistant", `Error: ${err.message}`);
+      } finally {
+        sendBtn.disabled = false;
+      }
+    }
+
+    async function sendVoice(blob) {
+      addMessage("user", "[voice message]");
+      micBtn.disabled = true;
+
+      try {
+        const form = new FormData();
+        form.append("audio", blob, blob.type.includes("mp4") ? "recording.mp4" : "recording.webm");
+        const url = sessionId
+          ? `${API}/api/chat/voice?session_id=${sessionId}`
+          : `${API}/api/chat/voice`;
+
+        const res = await fetch(url, { method: "POST", body: form });
+        if (!res.ok) throw new Error(await apiErrorMessage(res));
+
+        const data = await res.json();
+        sessionId = data.session_id;
+
+        chat.lastChild.querySelector(".label").textContent = "user (voice)";
+        chat.lastChild.appendChild(document.createTextNode(data.transcript));
+
+        const tag = data.used_web_search ? " · web search" : "";
+        addMessage("assistant", data.response_text, tag);
+        await speakText(data.response_text, data.response_language);
+      } catch (err) {
+        addMessage("assistant", `Error: ${err.message}`);
+      } finally {
+        micBtn.disabled = false;
+      }
+    }
+
+    let recordTimer = null;
+    const MAX_RECORD_MS = 20000;
+
+    function pickMimeType() {
+      const types = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
+      return types.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+    }
+
+    async function startRecording() {
+      tryPendingIntro();
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mimeType = pickMimeType();
+        mediaRecorder = mimeType
+          ? new MediaRecorder(stream, { mimeType })
+          : new MediaRecorder(stream);
+        audioChunks = [];
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) audioChunks.push(e.data);
+        };
+        mediaRecorder.onstop = () => {
+          stream.getTracks().forEach((t) => t.stop());
+          if (audioChunks.length === 0) {
+            addMessage("assistant", "Error: No audio captured. Try holding the button longer.");
+            micBtn.disabled = false;
+            return;
+          }
+          const type = mediaRecorder.mimeType || "audio/webm";
+          sendVoice(new Blob(audioChunks, { type }));
+        };
+        mediaRecorder.start(250);
+        recordTimer = setTimeout(stopRecording, MAX_RECORD_MS);
+        micBtn.classList.add("recording");
+        micBtn.textContent = "Recording...";
+      } catch (err) {
+        addMessage("assistant", `Microphone error: ${err.message}`);
+        micBtn.disabled = false;
+      }
+    }
+
+    function stopRecording() {
+      if (recordTimer) {
+        clearTimeout(recordTimer);
+        recordTimer = null;
+      }
+      if (mediaRecorder && mediaRecorder.state === "recording") {
+        mediaRecorder.stop();
+        micBtn.classList.remove("recording");
+        micBtn.textContent = "Hold to Talk";
+      }
+    }
+
+    sendBtn.addEventListener("click", sendText);
+    input.addEventListener("keydown", (e) => e.key === "Enter" && sendText());
+    resetBtn.addEventListener("click", async () => {
+      if (sessionId) await fetch(`${API}/api/sessions/${sessionId}`, { method: "DELETE" });
+      sessionId = null;
+      chat.innerHTML = "";
+      loadPersona();
+    });
+
+    micBtn.addEventListener("mousedown", startRecording);
+    micBtn.addEventListener("mouseup", stopRecording);
+    micBtn.addEventListener("mouseleave", stopRecording);
+    micBtn.addEventListener("touchstart", (e) => { e.preventDefault(); startRecording(); });
+    micBtn.addEventListener("touchend", (e) => { e.preventDefault(); stopRecording(); });
+
+    document.addEventListener("click", tryPendingIntro, { once: true });
+
+    async function init() {
+      await checkHealth();
+      await loadPersona();
+    }
+    init();
+  </script>
+</body>
+</html>
