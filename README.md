@@ -77,6 +77,7 @@ The goal is not to replace documentation — it is to act like a **patient senio
 - **Web search** — Tavily API with automatic `search_web` tool use
 - **Text-to-speech** — Sarvam Bulbul v3, multilingual (`SARVAM_LANGUAGE_CODE=auto`)
 - **Conversation memory** — SQLite sessions with TTL and turn limits
+- **Chat archive** — every session saved to `data/chats/` with start timestamp in the filename
 - **Personas** — `dev-mentor` (Arjun) and `support-coach` (Meera)
 - **REST API** — full programmatic access with OpenAPI docs at `/docs`
 
@@ -165,8 +166,26 @@ python scripts/voice_client.py --health
 | `SARVAM_LANGUAGE_CODE` | No | Use `auto` to match user language (recommended) |
 | `ASSISTANT_PERSONA` | No | `dev-mentor` (Arjun) or `support-coach` (Meera) |
 | `PORT` | No | Default: `8080` |
+| `CHAT_ARCHIVE_ENABLED` | No | Save transcripts to files (default: `true`) |
+| `CHAT_ARCHIVE_DIR` | No | Directory for chat files (default: `data/chats`) |
 
 See `.env.example` for the full list.
+
+### Chat archive
+
+After each successful exchange, the full session transcript is written to `data/chats/`:
+
+```
+data/chats/
+├── 2026-06-19_114317_e363693d.txt   ← human-readable transcript
+└── 2026-06-19_114317_e363693d.json  ← structured export
+```
+
+Filename format: `{start-date}_{start-time}_{session-id-prefix}`
+
+Each file includes session start time, per-message timestamps, language, and web-search flags. The file is updated on every new turn in the same session.
+
+To disable archiving, set `CHAT_ARCHIVE_ENABLED=false` in `.env`.
 
 ---
 
@@ -223,7 +242,8 @@ ai-voice-agent/
     │   ├── routes.py          # REST endpoints
     │   └── schemas.py         # Pydantic models
     ├── memory/
-    │   └── session_store.py   # SQLite session persistence
+    │   ├── session_store.py   # SQLite session persistence
+    │   └── chat_archive.py    # Timestamped transcript files
     └── services/
         ├── agent_service.py   # Orchestration pipeline
         ├── gemini_service.py  # Gemini + tool calling + fallbacks
@@ -376,6 +396,7 @@ git push -u origin main
 
 | Issue | Solution |
 |-------|----------|
+| `getUserMedia` / microphone error | Open **http://127.0.0.1:8080** (not `0.0.0.0` or a LAN IP). Allow mic permission when prompted. |
 | `429 Too Many Requests` (Gemini) | Wait 30–60s; app auto-retries and falls back to alternate models |
 | `Empty audio recording` | Hold Talk button longer; allow microphone permission |
 | `SARVAM_API_KEY is required` | Add key to `.env` and restart server |

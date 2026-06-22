@@ -121,6 +121,71 @@
     const subtitleEl = document.getElementById("subtitle");
     let assistantName = "Arjun";
     let pendingIntro = null;
+    let micAvailable = false;
+
+    function microphoneSupportError() {
+      const hasModernApi = navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === "function";
+      const hasLegacyApi = !!(
+        navigator.getUserMedia ||
+        navigator.webkitGetUserMedia ||
+        navigator.mozGetUserMedia
+      );
+
+      if (!window.isSecureContext) {
+        const host = window.location.hostname;
+        if (host === "0.0.0.0" || host === "[::]") {
+          return (
+            "Microphone blocked: open http://127.0.0.1:8080 instead of http://0.0.0.0:8080"
+          );
+        }
+        if (host && host !== "localhost" && host !== "127.0.0.1") {
+          return (
+            `Microphone blocked on http://${host}. Use http://127.0.0.1:8080 on this machine, or HTTPS for remote access.`
+          );
+        }
+        return "Microphone requires a secure context (use http://127.0.0.1:8080).";
+      }
+
+      if (!hasModernApi && !hasLegacyApi) {
+        return "This browser does not support microphone access. Try Chrome, Firefox, or Edge.";
+      }
+      return null;
+    }
+
+    function requestMicrophoneStream() {
+      const constraints = { audio: true };
+      if (navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === "function") {
+        return navigator.mediaDevices.getUserMedia(constraints);
+      }
+
+      const legacyGetUserMedia =
+        navigator.getUserMedia ||
+        navigator.webkitGetUserMedia ||
+        navigator.mozGetUserMedia;
+
+      if (!legacyGetUserMedia) {
+        return Promise.reject(new Error(microphoneSupportError() || "Microphone API unavailable."));
+      }
+
+      return new Promise((resolve, reject) => {
+        legacyGetUserMedia.call(navigator, constraints, resolve, reject);
+      });
+    }
+
+    async function checkMicrophone() {
+      const supportError = microphoneSupportError();
+      if (supportError) {
+        micAvailable = false;
+        micBtn.disabled = true;
+        micBtn.title = supportError;
+        status.textContent += ` | Mic: unavailable — ${supportError}`;
+        return;
+      }
+
+      micAvailable = true;
+      micBtn.disabled = false;
+      micBtn.title = "Hold to talk (browser will ask for microphone permission)";
+    }
 
     async function speakText(text, languageCode = null) {
       const body = { text };
@@ -275,8 +340,13 @@
 
     async function startRecording() {
       tryPendingIntro();
+      if (!micAvailable) {
+        const msg = microphoneSupportError() || micBtn.title || "Microphone unavailable.";
+        addMessage("assistant", `Microphone error: ${msg}`);
+        return;
+      }
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await requestMicrophoneStream();
         const mimeType = pickMimeType();
         mediaRecorder = mimeType
           ? new MediaRecorder(stream, { mimeType })
@@ -300,7 +370,10 @@
         micBtn.classList.add("recording");
         micBtn.textContent = "Recording...";
       } catch (err) {
-        addMessage("assistant", `Microphone error: ${err.message}`);
+        const reason = err.name === "NotAllowedError"
+          ? "Permission denied — click the lock icon in the address bar and allow the microphone."
+          : err.message || "Could not access microphone.";
+        addMessage("assistant", `Microphone error: ${reason}`);
         micBtn.disabled = false;
       }
     }
@@ -336,6 +409,7 @@
 
     async function init() {
       await checkHealth();
+      await checkMicrophone();
       await loadPersona();
     }
     init();

@@ -20,6 +20,14 @@ class Message:
     metadata: dict[str, Any] | None = None
 
 
+@dataclass
+class StoredMessage:
+    role: str
+    content: str
+    created_at: str
+    metadata: dict[str, Any] | None = None
+
+
 class SessionStore:
     def __init__(self, db_path: str | None = None) -> None:
         settings = get_settings()
@@ -93,12 +101,12 @@ class SessionStore:
             )
             await db.commit()
 
-    async def get_history(self, session_id: str) -> list[Message]:
+    async def _fetch_messages(self, session_id: str) -> list[StoredMessage]:
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 """
-                SELECT role, content, metadata
+                SELECT role, content, metadata, created_at
                 FROM messages
                 WHERE session_id = ?
                 ORDER BY id ASC
@@ -107,14 +115,47 @@ class SessionStore:
             )
             rows = await cursor.fetchall()
 
-        messages: list[Message] = []
+        messages: list[StoredMessage] = []
         for row in rows:
             meta = json.loads(row["metadata"]) if row["metadata"] else None
-            messages.append(Message(role=row["role"], content=row["content"], metadata=meta))
-
-        if len(messages) > self.max_turns * 2:
-            messages = messages[-(self.max_turns * 2) :]
+            messages.append(
+                StoredMessage(
+                    role=row["role"],
+                    content=row["content"],
+                    created_at=row["created_at"],
+                    metadata=meta,
+                )
+            )
         return messages
+
+    async def get_session_info(self, session_id: str) -> dict[str, str] | None:
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                "SELECT session_id, created_at, updated_at FROM sessions WHERE session_id = ?",
+                (session_id,),
+            )
+            row = await cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "session_id": row["session_id"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    async def get_all_messages(self, session_id: str) -> list[StoredMessage]:
+        """Full message history for archival (not trimmed to max_history_turns)."""
+        return await self._fetch_messages(session_id)
+
+    async def get_history(self, session_id: str) -> list[Message]:
+        messages = await self._fetch_messages(session_id)
+        trimmed = [
+            Message(role=m.role, content=m.content, metadata=m.metadata) for m in messages
+        ]
+        if len(trimmed) > self.max_turns * 2:
+            trimmed = trimmed[-(self.max_turns * 2) :]
+        return trimmed
 
     async def clear_session(self, session_id: str) -> None:
         async with aiosqlite.connect(self.db_path) as db:

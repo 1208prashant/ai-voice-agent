@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     session_ttl_hours: int = 24
     max_history_turns: int = 20
 
+    chat_archive_enabled: bool = True
+    chat_archive_dir: str = "data/chats"
+
     host: str = "0.0.0.0"
     port: int = 8080
     log_level: str = "INFO"
@@ -65,6 +68,13 @@ class Settings(BaseSettings):
         if not path.is_absolute():
             path = ROOT_DIR / path
         path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    @property
+    def chat_archive_full_path(self) -> Path:
+        path = Path(self.chat_archive_dir)
+        if not path.is_absolute():
+            path = ROOT_DIR / path
         return path
 
     @property

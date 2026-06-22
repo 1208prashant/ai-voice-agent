@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.config import get_settings
+from src.memory.chat_archive import ChatArchive
 from src.memory.session_store import SessionStore
 from src.services.gemini_service import GeminiService
 from src.services.language_service import detect_explicit_language_request, language_instruction, resolve_language
@@ -34,14 +35,17 @@ class AgentService:
         session_store: SessionStore | None = None,
         gemini: GeminiService | None = None,
         search: SearchService | None = None,
+        chat_archive: ChatArchive | None = None,
     ) -> None:
         self.sessions = session_store or SessionStore()
         self.gemini = gemini or GeminiService()
         self.search = search or SearchService()
+        self.chat_archive = chat_archive or ChatArchive(self.sessions)
         self.default_language = get_settings().default_language_code
 
     async def init(self) -> None:
         await self.sessions.init()
+        self.chat_archive.init()
         await self.sessions.purge_expired()
 
     async def chat(
@@ -124,6 +128,11 @@ class AgentService:
                 "language": response_language,
             },
         )
+
+        try:
+            await self.chat_archive.save_session(sid)
+        except Exception as exc:
+            logger.warning("Chat archive failed for session %s: %s", sid[:8], exc)
 
         logger.info(
             "Session %s | lang=%s | search=%s | response_len=%d",

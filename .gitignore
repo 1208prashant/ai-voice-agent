@@ -27,6 +27,7 @@ htmlcov/
 data/*.db
 data/*.db-journal
 data/sessions/
+data/chats/
 
 # Audio / media artifacts
 *.wav
