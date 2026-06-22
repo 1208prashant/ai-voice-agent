@@ -16,6 +16,7 @@ Technical work often happens **hands-on** — at a terminal, on a server, or whi
 4. Fetches **live information** from the web when documentation or versions change
 5. **Remembers** the conversation within a session
 6. Replies with **human-like speech** in the user's language
+7. **Archives** each session to timestamped transcript files on disk
 
 The goal is not to replace documentation — it is to act like a **patient senior engineer** sitting beside you, explaining the *why* behind commands while you work.
 
@@ -28,6 +29,7 @@ The goal is not to replace documentation — it is to act like a **patient senio
 | **Hands-free learning** | Ask questions by voice while your hands stay on the keyboard or server |
 | **Multilingual support** | Hindi, Marathi, Gujarati, English, and more via Sarvam auto-detect |
 | **Context-aware replies** | SQLite session memory keeps multi-turn conversations coherent |
+| **Chat transcripts on disk** | Every session saved to `data/chats/` with start timestamp in the filename |
 | **Up-to-date answers** | Optional Tavily web search for versions, release notes, and current docs |
 | **Natural voice output** | Sarvam Bulbul TTS with configurable pace and warmth |
 | **Human persona** | "Arjun" dev-mentor persona — warm, encouraging, not a robotic FAQ bot |
@@ -47,8 +49,9 @@ The goal is not to replace documentation — it is to act like a **patient senio
        │            │  ┌────────────┐  │              │
        │            │  │ Session    │  │     ┌────────▼────────┐
        │            │  │ Memory     │  │     │  Tavily Search    │
-       │            │  │ (SQLite)   │  │     │  (optional)     │
-       │            │  └────────────┘  │     └─────────────────┘
+       │            │  │ SQLite +   │  │     │  (optional)     │
+       │            │  │ chat files │  │     └─────────────────┘
+       │            │  └────────────┘  │
        │            └────────┬─────────┘
        │                     │
        ▼                     ▼
@@ -64,8 +67,9 @@ The goal is not to replace documentation — it is to act like a **patient senio
 2. **Sarvam STT** transcribes audio and detects language (`language_code=unknown`)
 3. **Agent** loads session history, resolves language, calls **Gemini**
 4. If needed, **Tavily** searches the web; Gemini synthesizes an answer
-5. Response saved to **SQLite**; **Sarvam TTS** speaks in the user's language
-6. Web UI plays audio and shows transcript + reply
+5. Response saved to **SQLite**; transcript exported to **`data/chats/`**
+6. **Sarvam TTS** speaks in the user's language
+7. Web UI plays audio and shows transcript + reply
 
 ---
 
@@ -98,7 +102,7 @@ English, Hindi, Marathi, Gujarati, Bengali, Tamil, Telugu, Kannada, Malayalam, P
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/ai-voice-agent.git
+git clone https://github.com/1208prashant/ai-voice-agent.git
 cd ai-voice-agent
 ```
 
@@ -127,7 +131,7 @@ Edit `.env` and add your keys (see table below).
 python main.py
 ```
 
-Open:
+Open the web UI at **http://127.0.0.1:8080** (not `http://0.0.0.0:8080`) so the browser can access your microphone.
 
 - **Web UI:** [http://127.0.0.1:8080](http://127.0.0.1:8080)
 - **API docs:** [http://127.0.0.1:8080/docs](http://127.0.0.1:8080/docs)
@@ -288,6 +292,7 @@ This project follows these rules to **prevent secret leaks**:
 | `.env` | **Never** | Contains real API keys — gitignored |
 | `.env.example` | Yes | Placeholder values only |
 | `data/sessions.db` | No | Local conversation data — gitignored |
+| `data/chats/` | No | Local transcript files — gitignored |
 | `.venv/` | No | Virtual environment — gitignored |
 
 **Before pushing to GitHub, verify:**
@@ -322,6 +327,7 @@ tar -czvf ../ai-voice-agent-archive.tar.gz \
   --exclude='__pycache__' \
   --exclude='data/*.db' \
   --exclude='data/*.db-journal' \
+  --exclude='data/chats' \
   --exclude='.git' \
   --exclude='*.wav' \
   --exclude='*.mp3' \
@@ -334,60 +340,47 @@ The archive is created at `../ai-voice-agent-archive.tar.gz` with **no `.env` fi
 
 ## Push to GitHub (CLI steps)
 
-### Step 1 — Initialize Git (first time only)
+Repository: [github.com/1208prashant/ai-voice-agent](https://github.com/1208prashant/ai-voice-agent)
+
+### First-time setup (already done)
+
+If you cloned the repo above, Git is already initialized and `origin` points to GitHub.
+
+### Push new changes
 
 ```bash
 cd ai-voice-agent
-git init
-```
 
-### Step 2 — Verify secrets are excluded
-
-```bash
+# Confirm secrets stay local
 git check-ignore -v .env
-# Expected: .gitignore:2:.env    .env
 
-cat .gitignore | head -5
-```
-
-### Step 3 — Stage and commit
-
-```bash
 git add .
 git status
-# Confirm .env, .venv/, and data/*.db are NOT listed
+# .env, .venv/, data/*.db, and data/chats/ must NOT appear
 
 git commit -m "$(cat <<'EOF'
-Initial commit: VoiceOps AI Assistant
+Your commit message here.
 
-Voice-first DevOps mentor with Gemini, Sarvam STT/TTS, multilingual
-support, web search, and SQLite session memory.
+Describe why the change was made, not just what files changed.
 EOF
 )"
+
+git push origin main
 ```
 
-### Step 4 — Create a GitHub repository
-
-1. Go to [github.com/new](https://github.com/new)
-2. Name it `ai-voice-agent` (or your preferred name)
-3. **Do not** initialize with README (you already have one)
-4. Copy the repository URL
-
-### Step 5 — Push to GitHub
+### First push on a new machine (if needed)
 
 ```bash
+git remote add origin https://github.com/1208prashant/ai-voice-agent.git
 git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/ai-voice-agent.git
 git push -u origin main
 ```
 
-Replace `YOUR_USERNAME` with your GitHub username.
-
-### Step 6 — (Optional) Use SSH instead of HTTPS
+### SSH remote (optional)
 
 ```bash
-git remote add origin git@github.com:YOUR_USERNAME/ai-voice-agent.git
-git push -u origin main
+git remote set-url origin git@github.com:1208prashant/ai-voice-agent.git
+git push origin main
 ```
 
 ---
